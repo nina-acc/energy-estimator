@@ -351,6 +351,7 @@ if st.session_state.show_dashboard:
         with col1: #user controls
             elevation_plot_c = st.container()  # First container in column 1
             info_route_c = st.container()  # Second container in column 1
+            road_stats_c = st.container()
 
             with elevation_plot_c:
                 st.plotly_chart(fig, use_container_width=True)
@@ -359,6 +360,16 @@ if st.session_state.show_dashboard:
                 col1_1, col1_2= st.columns(2)
                 col1_1.metric("Elevation Change ", f"{net_elevation_change}")
                 col1_2.metric("Driving Distance Total ", f"{round(distance / 1000)} km")
+
+            with road_stats_c:
+                urban = 30
+                rural = 30
+                motorway = 40
+
+                col1_11, col1_21, col1_23= st.columns(3)
+                col1_11.metric("Urban roads ", f"{urban} %")
+                col1_21.metric("Rural roads ", f"{rural} %")
+                col1_23.metric("Motorway roads ", f"{motorway} %")
 
         with col2:#elevation and route
                 # Sliders
@@ -419,5 +430,3 @@ if st.session_state.show_dashboard:
             st.error('Failed to fetch elevation profile. Please check your input coordinates.')
 else:
     st.error('Please select both departure and destination addresses.')
-
-
