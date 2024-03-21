@@ -76,6 +76,8 @@ def categorize_traffic(maxspeeds):
     return categories
 
 def get_elevation_profile(start_lat,start_lon, end_lat, end_lon):
+    print("Start GPS Point:", start_lat, start_lon)
+    print("End GPS Point:", end_lat, end_lon)
     # Step 1: Get the route as a polyline from the OSRM API
     osrm_url = f"https://router.project-osrm.org/route/v1/driving/{start_lon},{start_lat};{end_lon},{end_lat}?overview=full&geometries=polyline"
     osrm_response = requests.get(osrm_url)
@@ -94,7 +96,7 @@ def get_elevation_profile(start_lat,start_lon, end_lat, end_lon):
 
     # Step 2: Prepare the list of points for Open-Elevation API
     # Note: Depending on usage limits, you might need to sample this list
-    locations = [{"latitude": lat, "longitude": lon} for lat, lon in route_points[::10]]  # Sampling every 10th point
+    locations = [{"latitude": lat, "longitude": lon} for lat, lon in route_points[::100]]  # Sampling every 10th point
 
     # Open-Elevation API endpoint
     open_elevation_url = "https://api.open-elevation.com/api/v1/lookup"
@@ -124,6 +126,7 @@ def get_elevation_profile(start_lat,start_lon, end_lat, end_lon):
   #distances = #HERE
 
     return distances, elevations
+
 def get_elevation_profile_2(start_lat, start_lon, end_lat, end_lon):
     # Step 1: Get the route as a polyline from the OSRM API
     osrm_url = f"https://router.project-osrm.org/route/v1/driving/{start_lon},{start_lat};{end_lon},{end_lat}?overview=full&geometries=polyline"
@@ -202,31 +205,89 @@ def get_gps_from_address(address):
         return None, None
 
 # Example function to generate a Sankey diagram
-def generate_sankey(slider1_value, slider2_value, slider3_value, slider4_value):
-    # Example data for the Sankey diagram that uses slider values
-    # Adjust this logic based on your specific data and how slider values should affect it
-    node_labels = ["Node 0", "Node 1", "Node 2", "Node 3"]
-    source_nodes = [0, 1, 0, 2, 3]
-    target_nodes = [2, 3, 3, 0, 1]
-    flow_values = [slider1_value, slider2_value, slider3_value, slider4_value, slider1_value + slider2_value]
+def generate_sankey(net_elevation_change, distance, heater, air_conditioning, avg_speed_city, avg_speed_landstraße, avg_speed_autobahn, tire_pressure, weight):
+    # Define labels for all nodes (including the battery as the target)
+    labels = ["Heater", "Air Con", "Avg Speed Urban", "Avg Speed Rural", "Avg Speed Motorway", "Net Elevation Change", "Distance Driven", "Vehicle Weight", "kWh per 100km"]
 
-    # Create the Sankey diagram
-    fig = go.Figure(data=[go.Sankey(
-        node=dict(
-            pad=15,
-            thickness=20,
-            line=dict(color="black", width=0.5),
-            label=node_labels,
-        ),
-        link=dict(
-            source=source_nodes,
-            target=target_nodes,
-            value=flow_values
-        ))])
+    # Define source nodes (indexes from labels list)
+    source = [0, 1, 2, 3, 4, 5, 6,7,8 ]  # Heater, Air Con, Avg Speed City, Avg Speed Highway, Avg Speed Freeway, Net Elevation Change, Distance, Weight
 
-    fig.update_layout(title_text="Dynamic Sankey Diagram", font_size=10)
-    return fig
+    # Define target nodes (indexes from labels list pointing to Consumption)
+    target = [9,9,9,9,9,9,9,9,9]  # All flow to "Consumption"
 
+    total_consumption = get_consumption(net_elevation_change, distance, heater, air_conditioning, avg_speed_city, avg_speed_landstraße, avg_speed_autobahn, tire_pressure, weight)
+    heater_v = 1*(heater/4)
+    air_conditioning_v = 1*(air_conditioning/4)
+    speed_weight = -0.006926
+    weight_elevation = 0.076841
+    weight_distance = 0.269667
+    weight_speed_urban = 0.001961
+    weight_speed_rural = 0.000338
+    weight_speed_motorway = -0.002299
+    weight_vehicle_weight = 0.000469
+
+    #1000W = 100%
+    heater_v = 1*(heater/4)
+    air_conditioning_v = 1*(air_conditioning/4)
+    avg_speed_city_v = avg_speed_city*weight_speed_urban*urban_percentage*(1+speed_weight)
+    avg_speed_landstraße_v = avg_speed_landstraße*weight_speed_rural*rural_percentage*(1+speed_weight)
+    avg_speed_autobahn_v = avg_speed_autobahn*weight_speed_motorway*motorway_percentage*(1+speed_weight)
+    net_elevation_change_v = net_elevation_change*weight_elevation
+    distance_v = distance*weight_distance
+    weight_v = weight*weight_vehicle_weight
+
+    #kWh/100km 0.2502411007159591*100()
+
+    # Increase each value by 3% if the toggle for low tire pressure is set to true (0.1% per PSI dropped)
+    if tire_pressure:
+        heater_v *= 1.03
+        air_conditioning_v *= 1.03
+        avg_speed_city_v *= 1.03
+        avg_speed_landstraße_v *= 1.03
+        avg_speed_autobahn_v *= 1.03
+        net_elevation_change_v *= 1.03
+        distance_v *= 1.03
+    #total_consumption = 1000
+    print('cons:',total_consumption)
+    kWh_per_100_km = total_consumption/distance*100
+
+    value = [heater_v/distance*100, air_conditioning_v/distance*100, avg_speed_city_v/distance*100, avg_speed_landstraße_v/distance*100, avg_speed_autobahn_v/distance*100, net_elevation_change_v/distance*100,  weight_v/distance*100, kWh_per_100_km]
+
+    return labels, source, target, value, total_consumption, kWh_per_100_km
+
+def get_consumption(net_elevation_change, distance, heater, air_conditioning, avg_speed_city, avg_speed_landstraße, avg_speed_autobahn, tire_pressure, weight):
+    speed_weight = -0.006926
+    weight_elevation = 0.076841
+    weight_distance = 0.269667
+    weight_speed_urban = 0.001961
+    weight_speed_rural = 0.000338
+    weight_speed_motorway = -0.002299
+    weight_vehicle_weight = 0.000469
+
+    #1000W = 100%
+    heater_v = 1*(heater/4)
+    air_conditioning_v = 1*(air_conditioning/4)
+    avg_speed_city_v = avg_speed_city*weight_speed_urban*urban_percentage*(1+speed_weight)
+    avg_speed_landstraße_v = avg_speed_landstraße*weight_speed_rural*rural_percentage*(1+speed_weight)
+    avg_speed_autobahn_v = avg_speed_autobahn*weight_speed_motorway*motorway_percentage*(1+speed_weight)
+    net_elevation_change_v = net_elevation_change*weight_elevation
+    distance_v = distance*weight_distance
+    weight_v = weight*weight_vehicle_weight
+
+    #kWh/100km 0.2502411007159591*100()
+
+    # Increase each value by 3% if the toggle for low tire pressure is set to true (0.1% per PSI dropped)
+    if tire_pressure:
+        heater_v *= 1.03
+        air_conditioning_v *= 1.03
+        avg_speed_city_v *= 1.03
+        avg_speed_landstraße_v *= 1.03
+        avg_speed_autobahn_v *= 1.03
+        net_elevation_change_v *= 1.03
+        distance_v *= 1.03
+
+    total_consumption = avg_speed_city_v+avg_speed_landstraße_v+avg_speed_autobahn_v+weight_v+air_conditioning_v+heater_v
+    return total_consumption
 ###-----setup
 # Set up Streamlit UI
 st.title('EV Energy and Consumption Estimator')
@@ -311,7 +372,7 @@ if st.session_state.show_dashboard:
                                                       st.session_state.coordinates['start_lon'],
                                                       st.session_state.coordinates['end_lat'],
                                                       st.session_state.coordinates['end_lon'])
-
+        fig = go.Figure()
         if elevations:  # Checking if the list of elevations is not empty
             # Calculate net elevation change
             net_elevation_change = elevations[-1] - elevations[0]  # Elevation change from start to end
@@ -327,7 +388,7 @@ if st.session_state.show_dashboard:
             distances_list = list(distances)
 
             # Create elevation profile plot
-            fig = go.Figure()
+
             fig.add_trace(go.Scatter(x=distances_list, y=elevations, mode='lines', name='Elevation Profile'))
             fig.update_layout(title='Elevation Profile', xaxis_title='Distance (m)', yaxis_title='Elevation (m)')
 
@@ -361,15 +422,41 @@ if st.session_state.show_dashboard:
                 col1_1.metric("Elevation Change ", f"{net_elevation_change}")
                 col1_2.metric("Driving Distance Total ", f"{round(distance / 1000)} km")
 
+
             with road_stats_c:
                 urban = 30
                 rural = 30
                 motorway = 40
 
                 col1_11, col1_21, col1_23= st.columns(3)
-                col1_11.metric("Urban roads ", f"{urban} %")
-                col1_21.metric("Rural roads ", f"{rural} %")
-                col1_23.metric("Motorway roads ", f"{motorway} %")
+                #urban_percentage, rural_percentage = st.slider("Road Conditions (%)", 0, 100, (40, 70))
+                #percentages=[0,5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,100]
+                urban_percentage, rural_percentage = st.select_slider(
+                    "Traffic Scenario Shares(%)",
+                    options = [i for i in range(0,101,5)],
+                    value = (35,55),
+                    format_func=lambda value: f" "
+                )
+                st.markdown(
+                    """
+                    <style>
+                        .stSlider > div:first-child {
+                            font-family: 'Arial', sans-serif;
+                            font-size: 10px;
+                            font-weight: bold;
+                            color: #333333;
+                        }
+                    </style>
+                    """,
+                    unsafe_allow_html=True
+                )
+                st.write("Adjust the Traffic Scnearios on the Route.")
+
+                rural_percentage_set = rural_percentage-urban_percentage
+                motorway_percentage = 100-rural_percentage
+                col1_11.metric("Urban Traffic ", f"{urban_percentage} %")
+                col1_21.metric("Rural Traffic ", f"{rural_percentage_set} %")
+                col1_23.metric("Motorway Traffic ", f"{motorway_percentage} %")
 
         with col2:#elevation and route
                 # Sliders
@@ -384,26 +471,42 @@ if st.session_state.show_dashboard:
                                                  max_value=250, value=50)
                 avg_speed_autobahn = st.slider('Average Speed Freeway (~Autobahn) Traffic [km/h]:', min_value=0,
                                                max_value=250, value=50)
+                weight = st.slider('Vehicle weight[lb]', min_value=2500,
+                                       max_value=6000, value=3000, step=500)
+
+
+
 
         # Assuming col2 and col3 setup above is correct and sliders are defined in col2
-
+        consumption = 0.0
         with col3:  # Sankey diagram
             sankey_plot_c = st.container()  # First container in column 1
             range_route_c = st.container()  # Second container in column 1
 
             with sankey_plot_c:
                 # Define labels for all nodes (including the battery as the target)
-                labels = ["Heater", "Air Con", "Avg Speed City", "Avg Speed Highway", "Battery Size"]
+                #labels = ["Heater", "Air Con", "Avg Speed Urban", "Avg Speed Rural", "Avg Speed Motorway", "Battery Size"]
+
+                #net_elevation_change
+                #distance
+
+
 
                 # Define source nodes (indexes from labels list)
-                source = [0, 1, 2, 3]  # Heater, Air Con, Avg Speed City, Avg Speed Highway
+                #source = [0, 1, 2, 3,4,5]  # Heater, Air Con, Avg Speed City, Avg Speed Highway
 
                 # Define target nodes (indexes from labels list pointing to Battery Size)
-                target = [4, 4, 4, 4]  # All flow to "Battery Size"
+                #target = [6, 6, 6, 6]  # All flow to "Battery Size"
 
+                #weights from gradiet boosting regressor
                 # Use the slider values as the flow values
-                value = [heater, air_conditioning, avg_speed_city, avg_speed_landstraße]
 
+               # value = [heater, air_conditioning, avg_speed_city, avg_speed_landstraße, avg_speed_autobahn, tire_pressure]
+
+
+                labels, source, target, value, consumption, kWh_per_100_km  = generate_sankey(net_elevation_change, distance, heater,
+                                                                air_conditioning, avg_speed_city, avg_speed_landstraße,
+                                                                avg_speed_autobahn, tire_pressure, weight)
                 # Create Sankey diagram
                 fig_sankey = go.Figure(data=[go.Sankey(
                     node=dict(
@@ -417,15 +520,18 @@ if st.session_state.show_dashboard:
                         target=target,
                         value=value
                     ))])
-
                 fig_sankey.update_layout(title_text="Dynamic Sankey Diagram", font_size=10)
                 st.plotly_chart(fig_sankey, use_container_width=True)
         with range_route_c:
             col3_1, col3_2 = st.columns(2)
-            col3_1.metric("Estimated Energy Consumption ", f"{net_elevation_change} kWh")
+            col3_1.metric("Estimated Energy Consumption ", f"{round(consumption)} kWh")
             col3_2.metric("Estimated Range under given Conditions ", f"{round(distance / 1000)} km")
 
-
+        #for widget in [battery_size, tire_pressure, heater, air_conditioning, avg_speed_city, avg_speed_landstraße,
+                       #avg_speed_autobahn, weight]:
+            #widget.on_change(get_consumption(net_elevation_change, distance, heater,
+                                                               # air_conditioning, avg_speed_city, avg_speed_landstraße,
+                                                               # avg_speed_autobahn, tire_pressure, weight))
     else:
             st.error('Failed to fetch elevation profile. Please check your input coordinates.')
 else:
