@@ -1,19 +1,20 @@
 import streamlit as st
 import plotly.graph_objects as go
-import requests
 import polyline
 from math import radians, cos, sin, asin, sqrt
 import requests
 import folium
-from folium.plugins import MarkerCluster
 
+
+#-----Streamlit site layout config------
 if 'sidebar_state' not in st.session_state:
     st.session_state.sidebar_state = 'expanded'
 
-st.set_page_config(layout="wide", initial_sidebar_state=st.session_state.sidebar_state)
+st.set_page_config(page_title= "Energy Estimator", layout="wide", initial_sidebar_state=st.session_state.sidebar_state, page_icon="🚗")
 
+#-----Additional functions--------------
 
-
+###Get the distance driven between the entered departure and destination GPS address using open street map
 def get_driving_distance_osrm(start_lat, start_lon, end_lat, end_lon):
     # Construct the request URL
     osrm_route_url = f"http://router.project-osrm.org/route/v1/driving/{start_lon},{start_lat};{end_lon},{end_lat}?overview=false"
@@ -32,6 +33,7 @@ def get_driving_distance_osrm(start_lat, start_lon, end_lat, end_lon):
         return None
 
 
+###Calculate distance between two GPS coordinates used in the elevation function
 def haversine(lon1, lat1, lon2, lat2):
     """
     Calculate the great circle distance in kilometers between two points
@@ -48,27 +50,7 @@ def haversine(lon1, lat1, lon2, lat2):
     r = 6371 # Radius of earth in kilometers. Use 3956 for miles
     return c * r
 
-# Function to fetch elevation profile from OpenStreetMap API
-def get_maxspeed_for_route(route_points):
-    maxspeeds = []
-    for point in route_points:
-        lat, lon = point
-        # Get the maxspeed from OSM API
-        response = requests.get(f"https://api.openstreetmap.org/api/0.6/way/nearest?format=json&lat={lat}&lon={lon}")
-        if response.status_code == 200:
-            data = response.json()
-            tags = data.get('tags', {})
-            maxspeed = tags.get('maxspeed', '50')  # Default to 50 if maxspeed is not available
-            try:
-                maxspeed_int = int(maxspeed)
-                maxspeeds.append(maxspeed_int)
-            except ValueError:
-                # Skip this maxspeed value if it cannot be converted to an integer
-                pass
-        else:
-            print(f"Failed to fetch maxspeed data from OSM API: {response.status_code}")
-    return maxspeeds
-
+###Fetch elevation profile from OpenStreetMap API
 def get_elevation_profile(start_lat,start_lon, end_lat, end_lon):
     print("Start GPS Point:", start_lat, start_lon)
     print("End GPS Point:", end_lat, end_lon)
@@ -90,7 +72,7 @@ def get_elevation_profile(start_lat,start_lon, end_lat, end_lon):
 
     # Step 2: Prepare the list of points for Open-Elevation API
     # Note: resampled to 100 due to limited access to API; tried with 10 before - did not work consistently
-    locations = [{"latitude": lat, "longitude": lon} for lat, lon in route_points[::100]]  # Sampling every 10th point
+    locations = [{"latitude": lat, "longitude": lon} for lat, lon in route_points[::100]]
 
     # Open-Elevation API endpoint
     open_elevation_url = "https://api.open-elevation.com/api/v1/lookup"
@@ -105,7 +87,7 @@ def get_elevation_profile(start_lat,start_lon, end_lat, end_lon):
         return [], [],[]
 
 
-    # Calculate distances between consecutive points in meters
+    # Calculate distances between consecutive points in meters using haversine function above
     distances = [0]  # Start with an initial distance of 0
     for i in range(1, len(locations)):
         prev_point = locations[i - 1]
@@ -119,14 +101,14 @@ def get_elevation_profile(start_lat,start_lon, end_lat, end_lon):
     elevations = [result['elevation'] for result in elevation_data['results']]
     return distances, elevations, route_points
 
-# Function to fetch autocomplete suggestions from Nominatim API
+###Fetch autocomplete suggestions of departure and destination address from Nominatim API
 def get_autocomplete_results(query):
     url = f"https://nominatim.openstreetmap.org/search?format=json&q={query}"
     response = requests.get(url)
     data = response.json()
     return data
 
-
+###Fetch autocomplete suggestions of departure and destination address from Nominatim API
 def get_gps_from_address(address):
     base_url = "https://nominatim.openstreetmap.org/search"
     params = {
@@ -140,39 +122,7 @@ def get_gps_from_address(address):
     else:
         return None, None
 
-def generate_bar_view(heater, air_conditioning, avg_speed, tire_pressure, elevation, distance, temperature):
-    # Berechnet Verbrauchswerte für jedes Eingabefeld
-    (total_consumption, heater_v, air_conditioning_v, avg_speed_v, net_elevation_change_v, distance_v, tire_pressure_v,
-     oat_v) = get_consumption(elevation, distance/1000, heater, air_conditioning, avg_speed, tire_pressure, temperature)
-
-    # Prüft, ob der Gesamtverbrauch größer als 0 ist, um Division durch Null zu vermeiden
-
-    consumption_heater = heater_v / total_consumption * 100
-    consumption_air_conditioning = air_conditioning_v / total_consumption * 100
-    consumption_avg_speed = avg_speed_v / total_consumption * 100
-        # Stellt sicher, dass tire_pressure_v ein Prozentwert ist
-    consumption_tire_pressure = tire_pressure_v * 100 if tire_pressure else 0
-    consumption_elevation = net_elevation_change_v / total_consumption * 100
-    consumption_temperature = oat_v / total_consumption * 100
-
-
-    # Fasst alle Verbrauchswerte zusammen
-    consumption_values = [consumption_heater, consumption_air_conditioning, consumption_avg_speed,
-                          consumption_tire_pressure, consumption_elevation, consumption_temperature]
-
-    return consumption_values
-
-# def generate_bar_view(heater, air_conditioning, avg_speed, tire_pressure, elevation, distance, temperature):
-#     # Calculate consumption values for each input field
-#     total_consumption, heater_v, air_conditioning_v, avg_speed_v, net_elevation_change_v, distance_v, tire_pressure_v, oat_v = get_consumption(
-#         elevation, distance / 1000, heater, air_conditioning, avg_speed, tire_pressure, temperature)
-#
-#     # Return consumption values in kWh
-#     return [heater_v, air_conditioning_v, avg_speed_v, tire_pressure_v, net_elevation_change_v, oat_v]
-#
-
-
-# Function to plot OSM map with data points
+### Plot OSM map with data points
 def plot_osm_map(start_lat, start_lon, end_lat, end_lon, route_points):
     # Create a folium map centered at the mean of start and end coordinates
     m = folium.Map(location=[(start_lat + end_lat) / 2, (start_lon + end_lon) / 2], zoom_start=10)
@@ -186,11 +136,28 @@ def plot_osm_map(start_lat, start_lon, end_lat, end_lon, route_points):
 
     return m
 
+###Calculate variable values used for bar plot shown on dashboard
+def generate_bar_view(heater, air_conditioning, avg_speed, tire_pressure, elevation, distance, temperature):
 
+    (total_consumption, heater_v, air_conditioning_v, avg_speed_v, net_elevation_change_v, distance_v, tire_pressure_v,
+     oat_v) = get_consumption(elevation, distance/1000, heater, air_conditioning, avg_speed, tire_pressure, temperature)
+
+    consumption_heater = heater_v / total_consumption * 100
+    consumption_air_conditioning = air_conditioning_v / total_consumption * 100
+    consumption_avg_speed = avg_speed_v / total_consumption * 100
+    consumption_tire_pressure = tire_pressure_v * 100 if tire_pressure else 0
+    consumption_elevation = net_elevation_change_v / total_consumption * 100
+    consumption_temperature = oat_v / total_consumption * 100
+
+
+    consumption_values = [consumption_heater, consumption_air_conditioning, consumption_avg_speed,
+                          consumption_tire_pressure, consumption_elevation, consumption_temperature]
+
+    return consumption_values
+
+###Calculate consumption based on heuristic derived from linear regression and input variables
 def get_consumption(net_elevation_change, distance, heater, air_conditioning, avg_speed, tire_pressure, temperature):
 
-
-    # model is based on cubic transformation of target
     intercept =  0.6113081001055111
     #weight_speed = -0.006926
     weight_elevation =  0.0023704721443417744
@@ -213,8 +180,7 @@ def get_consumption(net_elevation_change, distance, heater, air_conditioning, av
     oat_v = (temperature)*(weight_oat)
     print("oat", oat_v)
 
-
-
+    # model is based on cubic transformation of target
     if(tire_pressure):
         total_consumption = ((intercept+avg_speed_v+air_conditioning_v+heater_v+net_elevation_change_v+distance_v+oat_v)**3)*1.3
         tire_pressure_v = ((intercept+avg_speed_v+air_conditioning_v+heater_v+net_elevation_change_v+distance_v+oat_v)**3)*0.3
@@ -223,28 +189,14 @@ def get_consumption(net_elevation_change, distance, heater, air_conditioning, av
         tire_pressure_v = 0.0
 
     return total_consumption, heater_v, air_conditioning_v, avg_speed_v, net_elevation_change_v, distance_v, tire_pressure_v, oat_v
-# Function to enable disabling the sidebar
-#def toggle_sidebar_state():
- #   st.session_state.sidebar_state = 'collapsed' if st.session_state.sidebar_state == 'expanded' else 'expanded'
-    # Set query parameters to trigger a rerun with the updated session state
-    #st.set_query_params(sidebar_state=st.session_state.sidebar_state)
 
-# Initialize a session state variable that tracks the sidebar state (either 'expanded' or 'collapsed').
 if 'sidebar_state' not in st.session_state:
     st.session_state.sidebar_state = 'expanded'
 
 
-###-----setup
+###-----setup UI--------------------------------------------
 # Set up Streamlit UI
 st.title('EV Energy and Consumption Estimator')
-
-#Update button placeholder
-#update_button_placeholder = st.empty()
-# Condition to determine whether to show the button
-#show_update_button = False
-
-
-
 
 # Sidebar for address input and GPS coordinate retrieval
 st.sidebar.title("Address Selection")
@@ -311,12 +263,9 @@ start_lon_box = st.sidebar.number_input('Start Longitude', st.session_state.coor
 end_lat_box = st.sidebar.number_input('End Latitude', st.session_state.coordinates['end_lat'])
 end_lon_box = st.sidebar.number_input('End Longitude', st.session_state.coordinates['end_lon'])
 
-
-
 # Initialize a key in the session state to track if the dashboard should be displayed
 if 'show_dashboard' not in st.session_state:
     st.session_state.show_dashboard = False
-
 
 # When the "Create Dashboard" button is clicked, set this state to True
 if st.sidebar.button('Create Dashboard'):
@@ -325,7 +274,6 @@ if st.sidebar.button('Create Dashboard'):
     st.session_state.show_dashboard = True
     #show_update_button = True
     st.experimental_rerun()
-
 
 # Check the sidebar state to decide whether to show the sidebar
 if st.session_state.sidebar_state == 'collapsed':
@@ -359,9 +307,6 @@ if st.session_state.show_dashboard:
                                                       st.session_state.coordinates['end_lon'])
         fig = go.Figure()
         if elevations:  # Checking if the list of elevations is not empty
-
-            #Create button to update
-            #update_button = st.button("Update Dashboard")
 
             # Calculate net elevation change
             net_elevation_change = 0
@@ -398,9 +343,9 @@ if st.session_state.show_dashboard:
             map_c = st.container()  # First container in column 1
             info_route_c = st.container()  # Second container in column 1
 
+            #the map.html file is generated automatically and used to display the map on the dashboard
             with map_c:
                 st.header("Route Details")
-                #st.plotly_chart(fig, use_container_width=True)
                 if route_points:
                     folium_map = plot_osm_map(st.session_state.coordinates['start_lat'],
                                               st.session_state.coordinates['start_lon'],
@@ -408,7 +353,7 @@ if st.session_state.show_dashboard:
                                               st.session_state.coordinates['end_lon'], route_points)
 
                     folium_map.save("map.html")
-                    st.components.v1.html(open("map.html", 'r').read(), width=500, height=500)
+                    st.components.v1.html(open("map.html", 'r').read(), width=350, height=350)
                 else:
                     st.error('Failed to fetch route points. Please check your input coordinates.')
 
@@ -434,7 +379,7 @@ if st.session_state.show_dashboard:
         (total_consumption, heater_v, air_conditioning_v, avg_speed_v, net_elevation_change_v, distance_v,
          tire_pressure_v, temperature_v) = get_consumption(net_elevation_change,distance/1000,heater,air_conditioning,avg_speed,tire_pressure, temperature)
 
-        with col3:  # Sankey diagram
+        with col3:  # bar plot
             st.header("Consumption per Input Variable")
             bar_plot_c = st.container()  # First container in column 1
             range_route_c = st.container()  # Second container in column 1
@@ -451,14 +396,16 @@ if st.session_state.show_dashboard:
                                            marker=dict(color='blue'),
                                            text=[f"{val:.2f}%" for val in consumption_values],
                                            # Text to display on top of bars
-                                           textposition='auto')  # Automatically position the text
+                                           textposition='outside')
 
-                # Create layout
+
+                # Create bar plot layout
                 layout = go.Layout(
                     xaxis=dict(title='Sources', tickangle=45, tickmode='array', tickvals=sources, ticktext=sources),
                     yaxis=dict(title='Consumption (%)'),
                     legend=dict(x=0, y=1.0, bgcolor='rgba(255, 255, 255, 0)'),
-                    font=dict(size=16)
+                    font=dict(size=16),
+                    margin=dict(t=1)
                 )
 
                 # Create figure
@@ -474,19 +421,10 @@ if st.session_state.show_dashboard:
                 st.plotly_chart(fig, use_container_width=True)
 
         with range_route_c:
-            #consumption=get_consumption(net_elevation_change,distance/1000,heater,air_conditioning,avg_speed,tire_pressure)
             col3_1, col3_2 = st.columns(2)
             col3_1.metric("Estimated Energy Consumption ", f"{round(total_consumption,4)} kWh")
             col3_1.metric("Estimated kWh/100km ", f"{round((total_consumption/(distance/1000))*100, 4)}")
             col3_2.metric("Estimated Range ", f"{round((battery_size/(total_consumption/(distance/1000))),2)} km")
-            #col3_2.metric("Estimated Range ", f"{round(battery_size / 1)} km")
-
-        #for widget in [battery_size, tire_pressure, heater, air_conditioning, avg_speed_city, avg_speed_landstraße,
-                       #avg_speed_autobahn, weight]:
-            #widget.on_change(get_consumption(net_elevation_change, distance, heater,
-                                                               # air_conditioning, avg_speed_city, avg_speed_landstraße,
-                                                               # avg_speed_autobahn, tire_pressure, weight))
-
 
     else:
             st.error('Failed to fetch elevation profile. Please check your input coordinates.')
