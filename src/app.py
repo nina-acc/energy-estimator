@@ -353,7 +353,7 @@ if st.session_state.show_dashboard:
                                               st.session_state.coordinates['end_lon'], route_points)
 
                     folium_map.save("map.html")
-                    st.components.v1.html(open("map.html", 'r').read(), width=350, height=350)
+                    st.components.v1.html(open("map.html", 'r').read(), width=250, height=250)
                 else:
                     st.error('Failed to fetch route points. Please check your input coordinates.')
 
