@@ -1,4 +1,4 @@
-name: env_energy_estimator
+name: energy-estimator
 channels:
   - conda-forge
 dependencies:
